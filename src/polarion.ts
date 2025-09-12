@@ -291,7 +291,16 @@ export class Polarion {
 
   async getUrlFromWorkItem(itemId: string): Promise<string | undefined> {
     // Construct the URL for the Polarion web interface
-    return this.polarionUrl.concat('/#/project/', this.polarionProject, '/workitem?id=', itemId);
+    // Ensure the URL includes /polarion in the path
+    let baseUrl = this.polarionUrl;
+    if (!baseUrl.endsWith('/')) {
+      baseUrl += '/';
+    }
+    // Remove /polarion from the end if it's already there to avoid duplication
+    if (baseUrl.endsWith('/polarion/')) {
+      baseUrl = baseUrl.slice(0, -10); // Remove '/polarion/'
+    }
+    return baseUrl.concat('polarion/#/project/', this.polarionProject, '/workitem?id=', itemId);
   }
 
   private report(msg: string, level: LogLevel, popup: boolean = false) {
