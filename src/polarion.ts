@@ -1,26 +1,47 @@
-import * as soap from "soap";
+import axios, { AxiosInstance, AxiosResponse } from "axios";
 import * as vscode from 'vscode';
 import * as utils from './utils';
 import * as editor from './editor';
 
 export let polarion: Polarion;
 
+interface PolarionWorkItem {
+  id: string;
+  title: string;
+  type: {
+    id: string;
+  };
+  author: {
+    id: string;
+  };
+  status: {
+    id: string;
+  };
+  description?: {
+    content: string;
+  };
+  attributes?: {
+    unresolvable?: string;
+  };
+}
+
 export class Polarion {
-  // soap clients
-  soapClient: soap.Client;
-  soapTracker: soap.Client;
+  // HTTP client
+  httpClient: AxiosInstance;
 
   //polarion config
-  soapUser: string;
-  soapPassword: string;
+  polarionUser: string;
+  polarionPassword: string;
   polarionProject: string;
   polarionUrl: string;
+  useTokenAuth: boolean;
+  polarionToken: string | null;
 
   //initialized boolean
   initialized: boolean;
 
-  //session id
-  sessionID: any;
+  //authentication headers
+  authHeaders: any;
 
   //message related
   numberOfPopupsToShow: number;
@@ -33,99 +54,124 @@ export class Polarion {
   //exception handling
   exceptionCount: number;
 
+  //login state
+  private loginInProgress: boolean;
 
-  constructor(url: string, projectName: string, username: string, password: string, outputChannel: vscode.OutputChannel) {
-    this.soapUser = username;
-    this.soapPassword = password;
+  constructor(url: string, projectName: string, username: string, password: string, useTokenAuth: boolean, outputChannel: vscode.OutputChannel) {
+    this.polarionUser = username;
+    this.polarionPassword = password;
     this.polarionProject = projectName;
     this.polarionUrl = url;
+    this.useTokenAuth = useTokenAuth;
+    this.polarionToken = null;
     this.initialized = false;
-    this.sessionID = '';
+    this.authHeaders = {};
     this.numberOfPopupsToShow = 2;
     this.lastMessage = undefined;
     this.outputChannel = outputChannel;
     this.itemCache = new Map<string, { workitem: any, time: Date }>();
     this.exceptionCount = 0;
+    this.loginInProgress = false;
 
     this.report(`Polarion service started`, LogLevel.info);
     this.report(`With url: ${this.polarionUrl}`, LogLevel.info);
     this.report(`With project: ${this.polarionProject}`, LogLevel.info);
-    this.report(`With user: ${this.soapUser}`, LogLevel.info);
+    if (this.useTokenAuth) {
+      this.report(`Using token authentication from VS Code settings`, LogLevel.info);
+    } else {
+      this.report(`With user: ${this.polarionUser}`, LogLevel.info);
+    }
 
-    var soap = require('soap');
-    this.soapTracker = soap.createClientAsync(url.concat('/ws/services/TrackerWebService?wsdl'));
-    this.soapClient = soap.createClientAsync(url.concat('/ws/services/SessionWebService?wsdl'));
-
+    // Create axios instance for REST API calls
+    this.httpClient = axios.create({
+      baseURL: url,
+      timeout: 30000,
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
+      }
+    });
   }
 
   async initialize() {
-    await this.soapTracker.then((client: soap.Client) => {
-      this.soapTracker = client;
-    }, (err: string) => { this.report(`Could not connect to Polarion TrackerWebService on ${this.polarionUrl}`, LogLevel.error, true); });
+    try {
+      // If using token auth, retrieve the token from VS Code settings
+      if (this.useTokenAuth) {
+        await this.retrieveTokenFromSettings();
+      }
 
-    await this.soapClient.then((client: soap.Client) => {
-      this.soapClient = client;
+      // Setup authentication
+      await this.setupAuthentication();
+      
+      // Test the connection by making a simple API call
+      await this.testConnection();
+      
       this.initialized = true;
-    }, (reason: string) => { this.report(`Could not connect to Polarion SessionWebService on ${this.polarionUrl}`, LogLevel.error, true); });
-
-
-    await this.getSession();
+      this.report(`Polarion REST API connection established`, LogLevel.info, true);
+    } catch (error) {
+      this.report(`Failed to initialize Polarion REST API: ${error}`, LogLevel.error, true);
+      this.initialized = false;
+    }
   }
-  private async getSession(): Promise<boolean> {
-    let loginSucces = false;
-    let isCurrentSessionValid = await this.sessionValid();
 
-    if (isCurrentSessionValid === false) {
-      loginSucces = await this.login();
+  private async retrieveTokenFromSettings(): Promise<void> {
+    try {
+      const token: string | undefined = vscode.workspace.getConfiguration('Polarion', null).get('Token');
+      this.polarionToken = token || null;
+      if (this.polarionToken && this.polarionToken.trim() !== '') {
+        this.report(`Token retrieved successfully from VS Code settings`, LogLevel.info);
+      } else {
+        this.report(`No token found in VS Code settings (Polarion.Token)`, LogLevel.error, true);
+      }
+    } catch (error) {
+      this.report(`Failed to retrieve token from VS Code settings: ${error}`, LogLevel.error, true);
+    }
+  }
+
+  private async setupAuthentication(): Promise<void> {
+    if (this.useTokenAuth && this.polarionToken && this.polarionToken.trim() !== '') {
+      // Token-based authentication using Bearer token
+      this.authHeaders = {
+        'Authorization': `Bearer ${this.polarionToken}`
+      };
+      this.report(`Using token authentication`, LogLevel.info);
+    } else if (!this.useTokenAuth && this.polarionUser && this.polarionPassword) {
+      // Basic authentication
+      const credentials = Buffer.from(`${this.polarionUser}:${this.polarionPassword}`).toString('base64');
+      this.authHeaders = {
+        'Authorization': `Basic ${credentials}`
+      };
+      this.report(`Using basic authentication`, LogLevel.info);
+    } else {
+      throw new Error('No valid authentication method configured');
     }
 
-    return (isCurrentSessionValid || loginSucces);
+    // Set default headers for all requests
+    this.httpClient.defaults.headers.common = {
+      ...this.httpClient.defaults.headers.common,
+      ...this.authHeaders
+    };
   }
 
-  private async login(): Promise<boolean> {
-    let loggedIn = false;
-
-    await this.soapClient.logInAsync({ userName: this.soapUser, password: this.soapPassword }).then((result: any) => {
-
-      // save session ID
-      this.sessionID = result[2].sessionID;
-
-      this.report('Polarion login successful!', LogLevel.info, true);
-      this.report(`login: Logged in with session: ${this.sessionID.$value}`, LogLevel.info);
-      loggedIn = true;
-
-    }, (reason: string) => {
-      this.report('Polarion not logged in', LogLevel.error, true);
-      this.report(`login: could not login with expection: ${reason}`, LogLevel.info);
-    });
-    return loggedIn;
-  }
-
-  private async sessionValid(): Promise<boolean> {
-    let stillLoggedIn = false;
-
-    if (this.sessionID !== '') {
-      this.soapClient.addSoapHeader('<ns1:sessionID xmlns:ns1="http://ws.polarion.com/session" soap:actor="http://schemas.xmlsoap.org/soap/actor/next" soap:mustUnderstand="0">' + this.sessionID.$value + '</ns1:sessionID>');
+  private async testConnection(): Promise<void> {
+    try {
+      // Test connection with a simple API call to get current user info
+      const response = await this.httpClient.get('/polarion/rest/v1/projects');
+      if (response.status === 200) {
+        this.report(`REST API connection test successful`, LogLevel.info);
+      }
+    } catch (error: any) {
+      if (error.response?.status === 401) {
+        throw new Error('Authentication failed - check your credentials');
+      } else if (error.response?.status === 403) {
+        throw new Error('Access forbidden - check your permissions');
+      } else {
+        throw new Error(`Connection test failed: ${error.message}`);
+      }
     }
-
-    await this.soapClient.hasSubjectAsync({}).then((result: any) => {
-      // save session ID if stil valid
-      if (result[0].hasSubjectReturn === true) {
-        stillLoggedIn = true;
-        this.sessionID = result[2].sessionID;
-        this.report(`sessionValid: Session still valid`, LogLevel.info);
-      } else { this.report(`sessionValid: Session not valid`, LogLevel.info); }
-    }, (reason: string) => {
-      this.report(`sessionValid: Failure to get session with exception: ${reason}`, LogLevel.error);
-    });
-
-    return stillLoggedIn;
   }
-
 
   async getWorkItem(workItem: string): Promise<any | undefined> {
-    //Add to the dictionairy if not available
-
     let fetchItem = false;
 
     if (this.initialized) {
@@ -154,8 +200,7 @@ export class Polarion {
       });
     }
 
-
-    //lookup in dictrionairy
+    //lookup in dictionary
     var item = undefined;
     if (this.itemCache.has(workItem)) {
       item = this.itemCache.get(workItem);
@@ -163,46 +208,74 @@ export class Polarion {
     return item?.workitem;
   }
 
-
-
-  private async getWorkItemFromPolarion(itemId: string): Promise<any | undefined> {
+  private async getWorkItemFromPolarion(itemId: string): Promise<PolarionWorkItem | undefined> {
     // don't bother requesting if not initialized
     if (this.initialized === false) {
       return undefined;
     }
 
-    let workItem: any = undefined;
-    this.soapTracker.addSoapHeader('<ns1:sessionID xmlns:ns1="http://ws.polarion.com/session" soap:actor="http://schemas.xmlsoap.org/soap/actor/next" soap:mustUnderstand="0">' + this.sessionID.$value + '</ns1:sessionID>');
+    try {
+      this.report(`Fetching work item ${itemId} via REST API`, LogLevel.info);
+      
+      // Use Polarion REST API v1 to get work item
+      const response: AxiosResponse = await this.httpClient.get(
+        `/polarion/rest/v1/projects/${this.polarionProject}/workitems/${itemId}`
+      );
 
-    await this.getSession();
-
-    await this.soapTracker.getWorkItemByIdAsync({ projectId: this.polarionProject, workitemId: itemId }, null, this.sessionID)
-      .then((result: any) => {
-        let r = result[0].getWorkItemByIdReturn;
-        if (r.attributes.unresolvable === 'false') {
-          this.report(`getWorkItem: Found workitem ${itemId} ${r.title}`, LogLevel.info);
-          workItem = r;
-        }
-        else {
-          this.report(`getWorkItem: Could not find workitem ${itemId}`, LogLevel.info);
+      if (response.status === 200 && response.data) {
+        const workItem = response.data.data;
+        this.report(`getWorkItem: Found workitem ${itemId} ${workItem.attributes?.title || workItem.title || 'No title'}`, LogLevel.info);
+        
+        // Transform REST API response to match the expected format
+        // Check if attributes are nested under workItem.attributes or directly on workItem
+        const attributes = workItem.attributes || workItem;
+        
+        return {
+          id: workItem.id || attributes.id,
+          title: attributes.title || 'No title',
+          type: {
+            id: attributes.type?.id || workItem.type?.id || 'unknown'
+          },
+          author: {
+            id: attributes.author?.id || workItem.author?.id || 'unknown'
+          },
+          status: {
+            id: attributes.status?.id || workItem.status?.id || 'unknown'
+          },
+          description: attributes.description ? {
+            content: attributes.description.value || attributes.description
+          } : workItem.description ? {
+            content: workItem.description.value || workItem.description
+          } : undefined,
+          attributes: {
+            unresolvable: 'false'
+          }
+        };
+      } else {
+        this.report(`getWorkItem: Could not find workitem ${itemId}`, LogLevel.info);
+        return undefined;
+      }
+    } catch (error: any) {
+      if (error.response?.status === 404) {
+        this.report(`getWorkItem: Work item ${itemId} not found`, LogLevel.info);
+      } else if (error.response?.status === 401 || error.response?.status === 403) {
+        this.report(`getWorkItem: Authentication/authorization error for ${itemId}`, LogLevel.error);
+      } else {
+        this.report(`getWorkItem: Could not fetch ${itemId} with exception: ${error.message}`, LogLevel.error);
+        
+        //restart instance because getting exceptions is not normal
+        let exceptionLimit: number | undefined = vscode.workspace.getConfiguration('Polarion', null).get('ExceptionRestart');
+        if (exceptionLimit) {
+          if (this.exceptionCount > exceptionLimit && exceptionLimit > 0) {
+            this.report(`getWorkItem: Restarting Polarion after ${this.exceptionCount} exceptions`, LogLevel.error);
+            createPolarion(this.outputChannel);
+          } else {
+            this.exceptionCount++;
+          }
         }
       }
-        , (reason: string) => {
-          this.report(`getWorkItem: Could not find ${itemId} with exception: ${reason}`, LogLevel.error);
-          //restart instance because getting exceptions is not normal
-          // this is possibly a workaround for some login problem?
-          let exceptionLimit: number | undefined = vscode.workspace.getConfiguration('Polarion', null).get('ExceptionRestart');
-          if (exceptionLimit) {
-            if (this.exceptionCount > exceptionLimit && exceptionLimit > 0) {
-              this.report(`getWorkItem: Restarting Polarion after ${this.exceptionCount} exceptions`, LogLevel.error);
-              createPolarion(this.outputChannel);
-            } else {
-              this.exceptionCount++;
-            }
-          }
-        });
-
-    return workItem;
+      return undefined;
+    }
   }
 
   async getTitleFromWorkItem(itemId: string): Promise<string | undefined> {
@@ -217,7 +290,7 @@ export class Polarion {
   }
 
   async getUrlFromWorkItem(itemId: string): Promise<string | undefined> {
-    // for now just construct the URL
+    // Construct the URL for the Polarion web interface
     return this.polarionUrl.concat('/#/project/', this.polarionProject, '/workitem?id=', itemId);
   }
 
@@ -242,7 +315,6 @@ export class Polarion {
     this.itemCache.clear();
     vscode.window.showInformationMessage('Cleared polarion work item cache');
   }
-
 }
 
 enum LogLevel {
@@ -251,26 +323,41 @@ enum LogLevel {
 }
 
 export async function createPolarion(outputChannel: vscode.OutputChannel) {
-
   let polarionUrl: string | undefined = vscode.workspace.getConfiguration('Polarion', null).get('Url');
   let polarionProject: string | undefined = vscode.workspace.getConfiguration('Polarion', null).get('Project');
+  let useTokenAuth: boolean | undefined = vscode.workspace.getConfiguration('Polarion', null).get('UseTokenAuth');
   let polarionUsername: string | undefined = vscode.workspace.getConfiguration('Polarion', null).get('Username');
   let polarionPassword: string | undefined = vscode.workspace.getConfiguration('Polarion', null).get('Password');
 
-  let fileConfig = utils.getPolarionConfigFromFile();
-  if (fileConfig) {
-    // we have a config file, overrule the username and password
-    polarionUsername = fileConfig.username;
-    polarionPassword = fileConfig.password;
+  // Default to token auth if not specified
+  if (useTokenAuth === undefined) {
+    useTokenAuth = true;
   }
 
-  if (polarionUrl && polarionProject && polarionUsername && polarionPassword) {
-    let newPolarion = new Polarion(polarionUrl, polarionProject, polarionUsername, polarionPassword, outputChannel);
-    polarion = newPolarion;
-    await polarion.initialize().then(() => {
-      const openEditor = vscode.window.visibleTextEditors.forEach(e => {
-        editor.decorate(e);
+  let fileConfig = utils.getPolarionConfigFromFile();
+  if (fileConfig) {
+    // we have a config file, override the username and password
+    polarionUsername = fileConfig.username;
+    polarionPassword = fileConfig.password;
+    if (fileConfig.useTokenAuth !== undefined) {
+      useTokenAuth = fileConfig.useTokenAuth;
+    }
+  }
+
+  if (polarionUrl && polarionProject) {
+    // For token auth, we don't need username/password to be configured
+    if (useTokenAuth || (polarionUsername && polarionPassword)) {
+      let newPolarion = new Polarion(polarionUrl, polarionProject, polarionUsername || '', polarionPassword || '', useTokenAuth, outputChannel);
+      polarion = newPolarion;
+      await polarion.initialize().then(() => {
+        const openEditor = vscode.window.visibleTextEditors.forEach(e => {
+          editor.decorate(e);
+        });
       });
-    });
+    } else {
+      outputChannel.appendLine('Error: Username and password must be configured when token authentication is disabled');
+    }
+  } else {
+    outputChannel.appendLine('Error: URL and Project must be configured');
   }
 }

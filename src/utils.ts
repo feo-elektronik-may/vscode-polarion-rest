@@ -84,9 +84,20 @@ export function checkSettings() {
     missingConfiguration.push('Prefix');
   }
 
+  let useTokenAuth: boolean | undefined = vscode.workspace.getConfiguration('Polarion', null).get('UseTokenAuth');
+  if (useTokenAuth === undefined) {
+    useTokenAuth = true; // Default to token auth
+  }
+
   let fileConfig = getPolarionConfigFromFile();
-  if (!fileConfig) {
-    //Do not check for user and password if a polarion config file is present
+  if (!fileConfig && useTokenAuth) {
+    // Check for token if using token auth and no polarion config file is present
+    let token: string | undefined = vscode.workspace.getConfiguration('Polarion', null).get('Token');
+    if (!token || token.trim() === '') {
+      missingConfiguration.push('Token');
+    }
+  } else if (!fileConfig && !useTokenAuth) {
+    // Only check for user and password if not using token auth and no polarion config file is present
     if (vscode.workspace.getConfiguration('Polarion', null).get('Username') === "") {
       missingConfiguration.push('Username');
     }
@@ -99,6 +110,10 @@ export function checkSettings() {
     var message = 'The following Polarion settings are not set: ';
     message = message.concat(missingConfiguration.join(', '));
     vscode.window.showWarningMessage(message);
+  }
+
+  if (useTokenAuth) {
+    vscode.window.showInformationMessage('Polarion will use token authentication from VS Code settings');
   }
 }
 
@@ -135,7 +150,7 @@ export async function documentChanged(textEditor: vscode.TextEditor | undefined,
   }
 }
 
-export function getPolarionConfigFromFile(): { username: string, password: string } | undefined {
+export function getPolarionConfigFromFile(): { username?: string, password?: string, token?: string, useTokenAuth?: boolean } | undefined {
   let workspace = vscode.workspace.workspaceFolders;
   if (workspace) {
     try {
@@ -153,10 +168,4 @@ export function getPolarionConfigFromFile(): { username: string, password: strin
       return undefined;
     }
   }
-
-
-
-
-
-
 }

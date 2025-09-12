@@ -4,6 +4,8 @@ This extension finds work items in polarion and add the title of the work item b
 
 A document will be updated on save or when changes the file that is viewed in Code.
 
+**Note: This extension now uses the Polarion REST API instead of SOAP/WSDL for improved performance and reliability.**
+
 ## Features
 
 After setup after any save expect the titles to be displayed like depicted below:
@@ -39,8 +41,6 @@ More detailed info is printed in a newly added output channel:
 
 ![Polarion output](https://github.com/jesper-raemaekers/vscode-polarion/blob/main/images/output.jpg?raw=true)
 
-
-
 ## Extension Settings
 
 Include if your extension adds any VS Code settings through the `contributes.configuration` extension point.
@@ -49,17 +49,44 @@ For example:
 
 This extension contributes the following settings:
 
-* `Polarion.Username`: The polarion username to log in
-* `Polarion.Password`: The password for that user
 * `Polarion.Url`: The polarion url, f.e.: http://polarion2020.example.com/polarion
 * `Polarion.Project`: The polarion project ID
 * `Polarion.Prefix`: The ticket prefix without the -
+* `Polarion.UseTokenAuth`: Use token authentication (default: true)
+* `Polarion.Token`: Polarion authentication token for REST API access
+* `Polarion.Username`: The polarion username to log in (only used when UseTokenAuth is false)
+* `Polarion.Password`: The password for that user (only used when UseTokenAuth is false)
 * `Polarion.Color`: The color for the texts that are added
 * `Polarion.Hover`: Enables the hover menu
 * `Polarion.RefreshTime`: Time after which an item in cache is refreshed
 
-The username and password can be saved in a separate file in .vscode with the name polarion.json. IF the file is present and valid, it will override the settings above.
+## Authentication
+
+### Token Authentication (Recommended)
+The extension now uses Polarion's REST API with token-based authentication. Store your Polarion access token in the VS Code settings under `Polarion.Token`. 
+
+To generate a token in Polarion:
+1. Log into your Polarion instance
+2. Go to your user profile settings
+3. Navigate to the "Access Tokens" section
+4. Generate a new token with appropriate permissions
+5. Copy the token to the `Polarion.Token` setting in VS Code
+
+### Username/Password Authentication (Legacy)
+Basic authentication is still supported for backwards compatibility. The username and password can be saved in VS Code settings or in a separate file in .vscode with the name polarion.json. If the file is present and valid, it will override the settings above.
 ![polarion config file](https://github.com/jesper-raemaekers/vscode-polarion/blob/main/images/config.png?raw=true)
+
+## Migration from SOAP to REST API
+
+This version migrates from SOAP/WSDL to Polarion's REST API v1 for:
+- Better performance and reliability
+- Modern HTTP-based communication
+- Improved error handling
+- Reduced dependencies
+
+The API endpoints used:
+- `GET /polarion/rest/v1/projects` - Connection testing
+- `GET /polarion/rest/v1/projects/{project}/workitems/{id}` - Fetch work items
 
 ## Known Issues
 
@@ -70,6 +97,15 @@ Only the first work item is handled:
 ![Example](https://github.com/jesper-raemaekers/vscode-polarion/blob/main/images/limitation1.jpg?raw=true)
 
 ## Release Notes
+
+### 0.3.0 (Upcoming)
+
+**BREAKING CHANGE**: Migrated from SOAP/WSDL to Polarion REST API v1
+- Improved performance and reliability
+- Better error handling and authentication
+- Removed dependency on SOAP library
+- Added support for modern token-based authentication
+- REST API endpoints replace WSDL services
 
 ### 0.2.2
 
