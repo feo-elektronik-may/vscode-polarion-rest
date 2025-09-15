@@ -219,7 +219,8 @@ export class Polarion {
       
       // Use Polarion REST API v1 to get work item
       const response: AxiosResponse = await this.httpClient.get(
-        `/polarion/rest/v1/projects/${this.polarionProject}/workitems/${itemId}`
+        `/polarion/rest/v1/projects/${this.polarionProject}/workitems/${itemId}`,
+        { params: {"fields[workitems]": "id,title,type,author,status,description"} }
       );
 
       if (response.status === 200 && response.data) {
@@ -234,13 +235,13 @@ export class Polarion {
           id: workItem.id || attributes.id,
           title: attributes.title || 'No title',
           type: {
-            id: attributes.type?.id || workItem.type?.id || 'unknown'
+            id: attributes.type || workItem.type || 'unknown'
           },
           author: {
-            id: attributes.author?.id || workItem.author?.id || 'unknown'
+            id: workItem.relationships?.author?.data?.id || workItem.author?.id || 'unknown'
           },
           status: {
-            id: attributes.status?.id || workItem.status?.id || 'unknown'
+            id: attributes.status || workItem.status || 'unknown'
           },
           description: attributes.description ? {
             content: attributes.description.value || attributes.description
