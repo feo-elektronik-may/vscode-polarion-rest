@@ -7,65 +7,63 @@ import * as fs from 'fs-extra';
 import * as path from 'path';
 import * as validator from 'jsonschema';
 
+export function getWorkitemRegex(): RegExp {
+  let prefix: string | undefined = vscode.workspace.getConfiguration('Polarion', null).get('Prefix');
+  
+  // Default prefix pattern if none is configured
+  if (!prefix || prefix.trim() === '') {
+    prefix = '[A-Z]{2,}';
+  }
+  
+  // Create regex pattern without capturing groups for getWordRangeAtPosition
+  return new RegExp(`${prefix}-\\d+`, 'g');
+}
+
 export function mapItemsInDocument(editor: vscode.TextEditor): Map<string, vscode.Range[]> {
   let result: Map<string, vscode.Range[]> = new Map<string, vscode.Range[]>();
-  let prefix: string | undefined = vscode.workspace.getConfiguration('Polarion', null).get('Prefix');
+  let regex = getWorkitemRegex();
 
-  // Check if a prefix is defined
-  if (prefix) {
-    let sourceCode = editor.document.getText();
-    let regex = RegExp("(" + prefix + "-\\d+)", 'g');
+  let sourceCode = editor.document.getText();
+  const sourceCodeArr = sourceCode.split('\n');
 
-    const sourceCodeArr = sourceCode.split('\n');
-
-
-    for (let line = 0; line < sourceCodeArr.length; line++) {
-      var m = null;
-      do {
-        m = regex.exec(sourceCodeArr[line]);
-        if (m) {
-          if (result.has(m[0])) {
-            let newRange: vscode.Range[] | undefined = result.get(m[0]);
-            if (newRange) {
-              newRange.push(new vscode.Range(new vscode.Position(line, m.index), new vscode.Position(line, m.index + m[0].length)));
-              result.set(m[0], newRange);
-            }
-          }
-          else {
-            let newRange: vscode.Range[] = [];
+  for (let line = 0; line < sourceCodeArr.length; line++) {
+    var m = null;
+    do {
+      m = regex.exec(sourceCodeArr[line]);
+      if (m) {
+        if (result.has(m[0])) {
+          let newRange: vscode.Range[] | undefined = result.get(m[0]);
+          if (newRange) {
             newRange.push(new vscode.Range(new vscode.Position(line, m.index), new vscode.Position(line, m.index + m[0].length)));
             result.set(m[0], newRange);
           }
-
         }
-      } while (m);
-    }
+        else {
+          let newRange: vscode.Range[] = [];
+          newRange.push(new vscode.Range(new vscode.Position(line, m.index), new vscode.Position(line, m.index + m[0].length)));
+          result.set(m[0], newRange);
+        }
+      }
+    } while (m);
   }
   return result;
 }
 
-
 export function listItemsInDocument(editor: vscode.TextEditor): any[] {
   let result: any[] = [];
-  let prefix: string | undefined = vscode.workspace.getConfiguration('Polarion', null).get('Prefix');
+  let regex = getWorkitemRegex();
 
-  // Check if a prefix is defined
-  if (prefix) {
-    let sourceCode = editor.document.getText();
-    let regex = RegExp("(" + prefix + "-\\d+)", 'g');
+  let sourceCode = editor.document.getText();
+  const sourceCodeArr = sourceCode.split('\n');
 
-    const sourceCodeArr = sourceCode.split('\n');
-
-
-    for (let line = 0; line < sourceCodeArr.length; line++) {
-      var m = null;
-      do {
-        m = regex.exec(sourceCodeArr[line]);
-        if (m) {
-          result.push({ name: m[0], range: new vscode.Range(new vscode.Position(line, m.index), new vscode.Position(line, m.index + m[0].length)) });
-        }
-      } while (m);
-    }
+  for (let line = 0; line < sourceCodeArr.length; line++) {
+    var m = null;
+    do {
+      m = regex.exec(sourceCodeArr[line]);
+      if (m) {
+        result.push({ name: m[0], range: new vscode.Range(new vscode.Position(line, m.index), new vscode.Position(line, m.index + m[0].length)) });
+      }
+    } while (m);
   }
   return result;
 }
@@ -171,7 +169,14 @@ export function getPolarionConfigFromFile(): { username?: string, password?: str
 }
 
 export function isValidWorkItem(workItem: string): boolean {
-  // Check if the workitem matches the pattern [A-Z]+-\d+ (e.g., ABC-123)
-  const workItemRegex = /^[A-Z]+-\d+$/;
+  // Create a non-global version of the regex for testing
+  let prefix: string | undefined = vscode.workspace.getConfiguration('Polarion', null).get('Prefix');
+  
+  // Default prefix pattern if none is configured
+  if (!prefix || prefix.trim() === '') {
+    prefix = '[A-Z]{2,}';
+  }
+  
+  const workItemRegex = new RegExp(`^${prefix}-\\d+$`);
   return workItemRegex.test(workItem);
 }

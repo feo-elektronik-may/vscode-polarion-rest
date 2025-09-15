@@ -10,7 +10,8 @@ const open = require('open');
 
 export class PolarionHoverProvider implements vscode.HoverProvider {
   async provideHover(document: vscode.TextDocument, position: vscode.Position): Promise<vscode.Hover | undefined> {
-    const wordRange = document.getWordRangeAtPosition(position, /[A-Z]+-\d+/);
+    const regex = utils.getWorkitemRegex();
+    const wordRange = document.getWordRangeAtPosition(position, regex);
     if (!wordRange) {
       return undefined;
     }
@@ -22,6 +23,43 @@ export class PolarionHoverProvider implements vscode.HoverProvider {
 
     const hoverContent = await buildHoverMarkdown(workItem);
     return new vscode.Hover(hoverContent, wordRange);
+  }
+}
+
+export class PolarionCodeLensProvider implements vscode.CodeLensProvider {
+  async provideCodeLenses(document: vscode.TextDocument): Promise<vscode.CodeLens[]> {
+    const codeLenses: vscode.CodeLens[] = [];
+    const regex = utils.getWorkitemRegex();
+    
+    for (let lineIndex = 0; lineIndex < document.lineCount; lineIndex++) {
+      const line = document.lineAt(lineIndex);
+      let match;
+      
+      // Reset regex lastIndex for each line
+      regex.lastIndex = 0;
+      
+      while ((match = regex.exec(line.text)) !== null) {
+        const workItem = match[0];
+        if (utils.isValidWorkItem(workItem)) {
+          const range = new vscode.Range(
+            lineIndex, 
+            match.index, 
+            lineIndex, 
+            match.index + workItem.length
+          );
+          
+          const codeLens = new vscode.CodeLens(range, {
+            title: `Open ${workItem} in Polarion`,
+            command: 'vscode-polarion.openWorkItemUrl',
+            arguments: [workItem]
+          });
+          
+          codeLenses.push(codeLens);
+        }
+      }
+    }
+    
+    return codeLenses;
   }
 }
 

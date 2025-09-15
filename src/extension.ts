@@ -33,6 +33,13 @@ export async function activate(context: vscode.ExtensionContext) {
     }
     return undefined;
   });
+  vscode.commands.registerCommand('vscode-polarion.openWorkItemUrl', async (workItem: string) => {
+    const polarionUrl = await pol.polarion.getUrlFromWorkItem(workItem);
+    if (polarionUrl) {
+      const open = require('open');
+      open(polarionUrl);
+    }
+  });
 
   // Register the hover provider
   const hoverProvider = vscode.languages.registerHoverProvider(
@@ -40,6 +47,31 @@ export async function activate(context: vscode.ExtensionContext) {
     new editor.PolarionHoverProvider()
   );
   context.subscriptions.push(hoverProvider);
+
+  // CodeLens provider - managed dynamically
+  let codeLensProvider: vscode.Disposable | undefined;
+  
+  function updateCodeLensProvider() {
+    const codeLensEnabled = vscode.workspace.getConfiguration('Polarion', null).get('CodeLens', true);
+    
+    // Dispose existing provider if it exists
+    if (codeLensProvider) {
+      codeLensProvider.dispose();
+      codeLensProvider = undefined;
+    }
+    
+    // Register new provider if enabled
+    if (codeLensEnabled) {
+      codeLensProvider = vscode.languages.registerCodeLensProvider(
+        { scheme: 'file' },
+        new editor.PolarionCodeLensProvider()
+      );
+      context.subscriptions.push(codeLensProvider);
+    }
+  }
+  
+  // Initial setup
+  updateCodeLensProvider();
 
   //outline provider 
   let outlineProvider = new PolarionOutlinesProvider(vscode.workspace.workspaceFolders);
@@ -60,6 +92,11 @@ export async function activate(context: vscode.ExtensionContext) {
 
     if (configChange) {
       utils.checkSettings();
+
+      // Update CodeLens provider if the setting changed
+      if (event.affectsConfiguration('Polarion.CodeLens')) {
+        updateCodeLensProvider();
+      }
 
       pol.createPolarion(outputChannel).finally(() => { polarionStatus.update(pol.polarion); });
     }

@@ -60,9 +60,6 @@ export class Polarion {
   //exception handling
   exceptionCount: number;
 
-  //login state
-  private loginInProgress: boolean;
-
   constructor(url: string, username: string, password: string, useTokenAuth: boolean, outputChannel: vscode.OutputChannel) {
     this.polarionUser = username;
     this.polarionPassword = password;
@@ -77,7 +74,6 @@ export class Polarion {
     this.itemCache = new Map<string, { workitem: any, time: Date }>();
     this.attachmentCache = new Map<string, string>();
     this.exceptionCount = 0;
-    this.loginInProgress = false;
 
     this.report(`Polarion service started`, LogLevel.info);
     this.report(`With url: ${this.polarionUrl}`, LogLevel.info);
@@ -344,7 +340,7 @@ export class Polarion {
   clearCache() {
     this.itemCache.clear();
     this.attachmentCache.clear();
-    this.report('Cleared polarion work item and attachment cache', LogLevel.info, true);
+    vscode.window.showInformationMessage('Cleared polarion work item and attachment cache');
   }
 
   async downloadWorkitemAttachmentForProject(workitemId: string, attachmentId: string, projectId: string): Promise<string | null> {

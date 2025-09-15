@@ -16,7 +16,7 @@
     "Other"
   ],
   "activationEvents": [
-    "onStartupFinished",
+    "onStartupFinished"
   ],
   "main": "./dist/extension.js",
   "contributes": {
@@ -64,8 +64,8 @@
         },
         "Polarion.Prefix": {
           "type": "string",
-          "default": "",
-          "description": "The prefix of the polarion IDs (for example TEST for TEST-123 tickets). This may also be a regular expression to match multiple prefixes, for example (TEST|ABCD) to match both TEST-123 and ABCD-456."
+          "default": "[A-Z]{2,}",
+          "description": "Regex pattern for Polarion workitem prefixes (e.g., '[A-Z]{2,}' for patterns like 'ABC-123')"
         },
         "Polarion.Color": {
           "type": "string",
@@ -86,6 +86,11 @@
           "type": "boolean",
           "default": true,
           "description": "Enabled the hover feature allowing to see basic info of a work item"
+        },
+        "Polarion.CodeLens": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable CodeLens links to open workitems in Polarion"
         }
       }
     },
