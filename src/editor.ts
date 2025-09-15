@@ -45,7 +45,7 @@ export async function decorate(editor: vscode.TextEditor) {
   editor.setDecorations(decorationType, decorationsArray);
 }
 
-async function processWorkitemImages(htmlContent: string, workitemId: string): Promise<string> {
+async function processWorkitemImages(htmlContent: string, workItem: pol.PolarionWorkItem): Promise<string> {
   // Regular expression to find img tags with workitemimg: src
   const imgRegex = /<img[^>]+src="workitemimg:([^"]+)"[^>]*>/gi;
   let processedContent = htmlContent;
@@ -56,8 +56,8 @@ async function processWorkitemImages(htmlContent: string, workitemId: string): P
     const fullImgTag = match[0];
     
     try {
-      // Download the image using the Polarion class method
-      const imageData = await pol.polarion.downloadWorkitemAttachment(workitemId, attachmentId);
+      // Download the image using the workitem's downloadAttachment method
+      const imageData = await workItem.downloadAttachment(attachmentId);
       
       if (imageData) {
         // Create a data URI for the image
@@ -69,7 +69,7 @@ async function processWorkitemImages(htmlContent: string, workitemId: string): P
         processedContent = processedContent.replace(fullImgTag, updatedImgTag);
       }
     } catch (error) {
-      console.error(`Failed to download image ${attachmentId} for workitem ${workitemId}:`, error);
+      console.error(`Failed to download image ${attachmentId} for workitem ${workItem.id}:`, error);
       // Keep the original img tag if download fails
     }
   }
@@ -104,7 +104,7 @@ export async function buildHoverMarkdown(workItem: string): Promise<vscode.Markd
     hover.push(new vscode.MarkdownString(`${workItem} (${item.type.id}) ***${item.title}***  \nAuthor: ${item.author.id}  \n Status: ${item.status.id}`));
     if (item.description) {
       // Process images in the description before creating the MarkdownString
-      const processedContent = await processWorkitemImages(item.description.content, workItem);
+      const processedContent = await processWorkitemImages(item.description.content, item);
       let content = new vscode.MarkdownString(processedContent);
       content.supportHtml = true;
       hover.push(content);

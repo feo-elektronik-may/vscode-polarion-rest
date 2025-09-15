@@ -17,10 +17,6 @@
   ],
   "activationEvents": [
     "onStartupFinished",
-    "onCommand:vscode-polarion.clearCache",
-    "onCommand:vscode-polarion.openPolarion",
-    "onCommand:vscode-polarion.restart",
-    "onView:polarionOutline"
   ],
   "main": "./dist/extension.js",
   "contributes": {
@@ -66,15 +62,10 @@
           "default": "",
           "description": "Password for polarion connection (only used when UseTokenAuth is false)"
         },
-        "Polarion.Project": {
-          "type": "string",
-          "default": "",
-          "description": "Name of the polarion project"
-        },
         "Polarion.Prefix": {
           "type": "string",
           "default": "",
-          "description": "The prefix of the polarion IDs (for example TEST for TEST-123 tickets)"
+          "description": "The prefix of the polarion IDs (for example TEST for TEST-123 tickets). This may also be a regular expression to match multiple prefixes, for example (TEST|ABCD) to match both TEST-123 and ABCD-456."
         },
         "Polarion.Color": {
           "type": "string",

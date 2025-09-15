@@ -5,7 +5,7 @@ import * as editor from './editor';
 
 export let polarion: Polarion;
 
-interface PolarionWorkItem {
+export interface PolarionWorkItem {
   id: string;
   title: string;
   type: {
@@ -23,6 +23,12 @@ interface PolarionWorkItem {
   attributes?: {
     unresolvable?: string;
   };
+  project: {
+    id: string;
+  };
+  
+  // Method to download attachments for this workitem
+  downloadAttachment(attachmentId: string): Promise<string | null>;
 }
 
 export class Polarion {
@@ -32,7 +38,6 @@ export class Polarion {
   //polarion config
   polarionUser: string;
   polarionPassword: string;
-  polarionProject: string;
   polarionUrl: string;
   useTokenAuth: boolean;
   polarionToken: string | null;
@@ -50,6 +55,7 @@ export class Polarion {
 
   //cache
   itemCache: Map<string, { workitem: any, time: Date }>;
+  attachmentCache: Map<string, string>; // Cache for attachment base64 data
 
   //exception handling
   exceptionCount: number;
@@ -57,10 +63,9 @@ export class Polarion {
   //login state
   private loginInProgress: boolean;
 
-  constructor(url: string, projectName: string, username: string, password: string, useTokenAuth: boolean, outputChannel: vscode.OutputChannel) {
+  constructor(url: string, username: string, password: string, useTokenAuth: boolean, outputChannel: vscode.OutputChannel) {
     this.polarionUser = username;
     this.polarionPassword = password;
-    this.polarionProject = projectName;
     this.polarionUrl = url;
     this.useTokenAuth = useTokenAuth;
     this.polarionToken = null;
@@ -70,12 +75,12 @@ export class Polarion {
     this.lastMessage = undefined;
     this.outputChannel = outputChannel;
     this.itemCache = new Map<string, { workitem: any, time: Date }>();
+    this.attachmentCache = new Map<string, string>();
     this.exceptionCount = 0;
     this.loginInProgress = false;
 
     this.report(`Polarion service started`, LogLevel.info);
     this.report(`With url: ${this.polarionUrl}`, LogLevel.info);
-    this.report(`With project: ${this.polarionProject}`, LogLevel.info);
     if (this.useTokenAuth) {
       this.report(`Using token authentication from VS Code settings`, LogLevel.info);
     } else {
@@ -217,19 +222,22 @@ export class Polarion {
     try {
       this.report(`Fetching work item ${itemId} via REST API`, LogLevel.info);
       
-      // Use Polarion REST API v1 to get work item
+      // Use Polarion REST API v1 to get work item from all projects
       const response: AxiosResponse = await this.httpClient.get(
-        `/polarion/rest/v1/projects/${this.polarionProject}/workitems/${itemId}`,
-        { params: {"fields[workitems]": "id,title,type,author,status,description"} }
+        `/polarion/rest/v1/all/workitems`,
+        { params: {
+          "query": `id:${itemId}`,
+          "fields[workitems]": "id,title,type,author,status,description,project"
+        }}
       );
 
-      if (response.status === 200 && response.data) {
-        const workItem = response.data.data;
+      if (response.status === 200 && response.data?.data?.length > 0) {
+        const workItem = response.data.data[0]; // Get the first (and should be only) result
         this.report(`getWorkItem: Found workitem ${itemId} ${workItem.attributes?.title || workItem.title || 'No title'}`, LogLevel.info);
         
         // Transform REST API response to match the expected format
-        // Check if attributes are nested under workItem.attributes or directly on workItem
         const attributes = workItem.attributes || workItem;
+        const projectId = workItem.relationships?.project?.data?.id || attributes.project || 'unknown';
         
         return {
           id: workItem.id || attributes.id,
@@ -250,6 +258,12 @@ export class Polarion {
           } : undefined,
           attributes: {
             unresolvable: 'false'
+          },
+          project: {
+            id: projectId
+          },
+          downloadAttachment: async (attachmentId: string): Promise<string | null> => {
+            return this.downloadWorkitemAttachmentForProject(itemId, attachmentId, projectId);
           }
         };
       } else {
@@ -291,8 +305,14 @@ export class Polarion {
   }
 
   async getUrlFromWorkItem(itemId: string): Promise<string | undefined> {
-    // Construct the URL for the Polarion web interface
-    // Ensure the URL includes /polarion in the path
+    // Get the workitem to access its project information
+    let workItem = await this.getWorkItem(itemId);
+    
+    if (!workItem) {
+      return undefined;
+    }
+
+    // Construct the URL for the Polarion web interface using the workitem's project
     let baseUrl = this.polarionUrl;
     if (!baseUrl.endsWith('/')) {
       baseUrl += '/';
@@ -301,7 +321,7 @@ export class Polarion {
     if (baseUrl.endsWith('/polarion/')) {
       baseUrl = baseUrl.slice(0, -10); // Remove '/polarion/'
     }
-    return baseUrl.concat('polarion/#/project/', this.polarionProject, '/workitem?id=', itemId);
+    return baseUrl.concat('polarion/#/project/', workItem.project.id, '/workitem?id=', itemId);
   }
 
   private report(msg: string, level: LogLevel, popup: boolean = false) {
@@ -323,16 +343,25 @@ export class Polarion {
 
   clearCache() {
     this.itemCache.clear();
-    vscode.window.showInformationMessage('Cleared polarion work item cache');
+    this.attachmentCache.clear();
+    this.report('Cleared polarion work item and attachment cache', LogLevel.info, true);
   }
 
-  async downloadWorkitemAttachment(workitemId: string, attachmentId: string): Promise<string | null> {
+  async downloadWorkitemAttachmentForProject(workitemId: string, attachmentId: string, projectId: string): Promise<string | null> {
     try {
       if (!this.initialized) {
         return null;
       }
 
-      const url = `/polarion/rest/v1/projects/${this.polarionProject}/workitems/${workitemId}/attachments/${attachmentId}/content`;
+      // Create cache key
+      const cacheKey = `${workitemId}:${attachmentId}`;
+      
+      // Check if attachment is already cached
+      if (this.attachmentCache.has(cacheKey)) {
+        return this.attachmentCache.get(cacheKey)!;
+      }
+
+      const url = `/polarion/rest/v1/projects/${projectId}/workitems/${workitemId}/attachments/${attachmentId}/content`;
       
       // Make a direct HTTP request without JSON headers for binary data
       const response = await this.httpClient.get(url, {
@@ -345,7 +374,12 @@ export class Polarion {
       if (response.status === 200) {
         // Convert array buffer to base64
         const buffer = Buffer.from(response.data);
-        return buffer.toString('base64');
+        const base64Data = buffer.toString('base64');
+        
+        // Cache the result
+        this.attachmentCache.set(cacheKey, base64Data);
+        
+        return base64Data;
       }
       
       return null;
@@ -363,7 +397,6 @@ enum LogLevel {
 
 export async function createPolarion(outputChannel: vscode.OutputChannel) {
   let polarionUrl: string | undefined = vscode.workspace.getConfiguration('Polarion', null).get('Url');
-  let polarionProject: string | undefined = vscode.workspace.getConfiguration('Polarion', null).get('Project');
   let useTokenAuth: boolean | undefined = vscode.workspace.getConfiguration('Polarion', null).get('UseTokenAuth');
   let polarionUsername: string | undefined = vscode.workspace.getConfiguration('Polarion', null).get('Username');
   let polarionPassword: string | undefined = vscode.workspace.getConfiguration('Polarion', null).get('Password');
@@ -383,10 +416,10 @@ export async function createPolarion(outputChannel: vscode.OutputChannel) {
     }
   }
 
-  if (polarionUrl && polarionProject) {
+  if (polarionUrl) {
     // For token auth, we don't need username/password to be configured
     if (useTokenAuth || (polarionUsername && polarionPassword)) {
-      let newPolarion = new Polarion(polarionUrl, polarionProject, polarionUsername || '', polarionPassword || '', useTokenAuth, outputChannel);
+      let newPolarion = new Polarion(polarionUrl, polarionUsername || '', polarionPassword || '', useTokenAuth, outputChannel);
       polarion = newPolarion;
       await polarion.initialize().then(() => {
         const openEditor = vscode.window.visibleTextEditors.forEach(e => {
@@ -397,6 +430,6 @@ export async function createPolarion(outputChannel: vscode.OutputChannel) {
       outputChannel.appendLine('Error: Username and password must be configured when token authentication is disabled');
     }
   } else {
-    outputChannel.appendLine('Error: URL and Project must be configured');
+    outputChannel.appendLine('Error: URL must be configured');
   }
 }
