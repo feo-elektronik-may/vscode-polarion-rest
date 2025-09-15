@@ -169,3 +169,9 @@ export function getPolarionConfigFromFile(): { username?: string, password?: str
     }
   }
 }
+
+export function isValidWorkItem(workItem: string): boolean {
+  // Check if the workitem matches the pattern [A-Z]+-\d+ (e.g., ABC-123)
+  const workItemRegex = /^[A-Z]+-\d+$/;
+  return workItemRegex.test(workItem);
+}

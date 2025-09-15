@@ -34,6 +34,13 @@ export async function activate(context: vscode.ExtensionContext) {
     return undefined;
   });
 
+  // Register the hover provider
+  const hoverProvider = vscode.languages.registerHoverProvider(
+    { scheme: 'file' }, // Apply to all file types
+    new editor.PolarionHoverProvider()
+  );
+  context.subscriptions.push(hoverProvider);
+
   //outline provider 
   let outlineProvider = new PolarionOutlinesProvider(vscode.workspace.workspaceFolders);
   vscode.window.registerTreeDataProvider('polarionOutline', outlineProvider);

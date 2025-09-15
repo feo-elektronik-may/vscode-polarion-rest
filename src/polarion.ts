@@ -325,6 +325,35 @@ export class Polarion {
     this.itemCache.clear();
     vscode.window.showInformationMessage('Cleared polarion work item cache');
   }
+
+  async downloadWorkitemAttachment(workitemId: string, attachmentId: string): Promise<string | null> {
+    try {
+      if (!this.initialized) {
+        return null;
+      }
+
+      const url = `/polarion/rest/v1/projects/${this.polarionProject}/workitems/${workitemId}/attachments/${attachmentId}/content`;
+      
+      // Make a direct HTTP request without JSON headers for binary data
+      const response = await this.httpClient.get(url, {
+        responseType: 'arraybuffer',
+        headers: {
+          'Accept': '*/*'
+        }
+      });
+
+      if (response.status === 200) {
+        // Convert array buffer to base64
+        const buffer = Buffer.from(response.data);
+        return buffer.toString('base64');
+      }
+      
+      return null;
+    } catch (error) {
+      this.report(`Error downloading attachment ${attachmentId} for workitem ${workitemId}: ${error}`, LogLevel.error);
+      return null;
+    }
+  }
 }
 
 enum LogLevel {
