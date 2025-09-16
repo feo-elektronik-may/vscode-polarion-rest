@@ -106,27 +106,48 @@ export class PolarionOutlinesProvider implements vscode.TreeDataProvider<Outline
 
       // Add other details
       if (workItem.status?.id) {
-        details.push(new OutlineItem(
-          `Status: ${workItem.status.id}`,
+        // Build status text with icon if available
+        let statusText = workItem.status?.name || workItem.status.id;
+        let statusItem = new OutlineItem(
+          `Status: ${statusText}`,
           vscode.TreeItemCollapsibleState.None,
           'detail'
-        ));
+        );
+        
+        // Set icon if available
+        if (workItem.status?.iconPath) {
+          statusItem.iconPath = vscode.Uri.parse(workItem.status.iconPath);
+        }
+        
+        details.push(statusItem);
       }
 
       if (workItem.author?.id) {
+        // Build author text using shared function
+        const authorText = utils.buildAuthorDisplayText(workItem.author);
+        
         details.push(new OutlineItem(
-          `Author: ${workItem.author.id}`,
+          `Author: ${authorText}`,
           vscode.TreeItemCollapsibleState.None,
           'detail'
         ));
       }
 
       if (workItem.type?.id) {
-        details.push(new OutlineItem(
-          `Type: ${workItem.type.id}`,
+        // Build workitem type text with icon if available
+        let typeText = workItem.type?.name || workItem.type.id;
+        let typeItem = new OutlineItem(
+          `Type: ${typeText}`,
           vscode.TreeItemCollapsibleState.None,
           'detail'
-        ));
+        );
+        
+        // Set icon if available
+        if (workItem.type?.iconPath) {
+          typeItem.iconPath = vscode.Uri.parse(workItem.type.iconPath);
+        }
+        
+        details.push(typeItem);
       }
 
       if (workItem.project?.id) {
@@ -219,6 +240,8 @@ export class PolarionOutlinesProvider implements vscode.TreeDataProvider<Outline
 }
 
 class OutlineItem {
+  public iconPath?: vscode.Uri | vscode.ThemeIcon;
+  
   constructor(
     public readonly label: string,
     public readonly collapsibleState: vscode.TreeItemCollapsibleState,

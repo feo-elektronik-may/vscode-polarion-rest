@@ -88,7 +88,22 @@ export async function buildHoverMarkdown(workItem: string): Promise<vscode.Markd
   let url = await pol.polarion.getUrlFromWorkItem(workItem);
   let hover: vscode.MarkdownString[] = [];
   if (item !== undefined) {
-    hover.push(new vscode.MarkdownString(`${workItem} (${item.type.id}) ***${item.title}***  \nAuthor: ${item.author.id}  \n Status: ${item.status.id}`));
+    // Build status text with icon if available
+    let statusText = item.status?.name || item.status?.id || 'unknown';
+    if (item.status?.iconPath) {
+      statusText = `![status](${item.status.iconPath}) ${statusText}`;
+    }
+    
+    // Build workitem type text with icon if available
+    let typeText = item.type?.name || item.type?.id || 'unknown';
+    if (item.type?.iconPath) {
+      typeText = `![type](${item.type.iconPath}) ${typeText}`;
+    }
+    
+    // Build author text using shared function
+    const authorText = utils.buildAuthorDisplayText(item.author);
+    
+    hover.push(new vscode.MarkdownString(`${workItem} (${typeText}) ***${item.title}***  \nAuthor: ${authorText}  \nStatus: ${statusText}`));
     if (item.description) {
       // Process images in the description before creating the MarkdownString
       const processedContent = await utils.preprocessWorkitemDescription(item.description.content, item);

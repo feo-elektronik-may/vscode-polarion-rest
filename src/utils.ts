@@ -213,6 +213,14 @@ export async function preprocessWorkitemDescription(htmlContent: string, workIte
   return processedContent;
 }
 
+export function buildAuthorDisplayText(author: { id: string, name?: string, email?: string, initials?: string }): string {
+  let authorText = author?.name || author?.id || 'unknown';
+  if (author?.email) {
+    authorText += ` (${author.email})`;
+  }
+  return authorText;
+}
+
 function getImageMimeType(filename: string): string {
   const ext = path.extname(filename).toLowerCase();
   switch (ext) {
