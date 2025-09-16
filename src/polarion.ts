@@ -5,6 +5,9 @@ import * as editor from './editor';
 
 export let polarion: Polarion;
 
+// Event emitter for Polarion connection state changes
+export const onPolarionConnectionChanged = new vscode.EventEmitter<boolean>();
+
 export interface PolarionWorkItem {
   id: string;
   title: string;
@@ -109,9 +112,15 @@ export class Polarion {
       
       this.initialized = true;
       this.report(`Polarion REST API connection established`, LogLevel.info, true);
+      
+      // Fire event when Polarion becomes connected
+      onPolarionConnectionChanged.fire(true);
     } catch (error) {
       this.report(`Failed to initialize Polarion REST API: ${error}`, LogLevel.error, true);
       this.initialized = false;
+      
+      // Fire event when Polarion connection fails
+      onPolarionConnectionChanged.fire(false);
     }
   }
 

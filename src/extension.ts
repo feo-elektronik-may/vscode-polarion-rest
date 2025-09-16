@@ -22,6 +22,22 @@ export async function activate(context: vscode.ExtensionContext) {
   let outputChannel = vscode.window.createOutputChannel("Polarion");
   pol.createPolarion(outputChannel).finally(() => { polarionStatus.update(pol.polarion); });
 
+  //outline provider 
+  let outlineProvider = new PolarionOutlinesProvider(vscode.workspace.workspaceFolders);
+  vscode.window.registerTreeDataProvider('polarionOutline', outlineProvider);
+
+  // Listen for Polarion connection changes and refresh outline
+  pol.onPolarionConnectionChanged.event((connected: boolean) => {
+    if (connected) {
+      // When Polarion becomes connected, refresh the outline view
+      outlineProvider.refresh();
+      // Also refresh the current editor decorations
+      const activeEditor = vscode.window.activeTextEditor;
+      if (activeEditor) {
+        editor.decorate(activeEditor);
+      }
+    }
+  });
 
   // commands
   vscode.commands.registerCommand('vscode-polarion.clearCache', () => pol?.polarion.clearCache());
@@ -38,6 +54,17 @@ export async function activate(context: vscode.ExtensionContext) {
     if (polarionUrl) {
       const open = require('open');
       open(polarionUrl);
+    }
+  });
+
+  // New command for opening workitem from outline
+  vscode.commands.registerCommand('vscode-polarion.openWorkItemFromOutline', async (workItemId: string) => {
+    if (workItemId) {
+      const polarionUrl = await pol.polarion.getUrlFromWorkItem(workItemId);
+      if (polarionUrl) {
+        const open = require('open');
+        open(polarionUrl);
+      }
     }
   });
 
@@ -72,10 +99,6 @@ export async function activate(context: vscode.ExtensionContext) {
   
   // Initial setup
   updateCodeLensProvider();
-
-  //outline provider 
-  let outlineProvider = new PolarionOutlinesProvider(vscode.workspace.workspaceFolders);
-  vscode.window.registerTreeDataProvider('polarionOutline', outlineProvider);
 
   // document save and change
   vscode.workspace.onWillSaveTextDocument(async event => {

@@ -180,3 +180,54 @@ export function isValidWorkItem(workItem: string): boolean {
   const workItemRegex = new RegExp(`^${prefix}-\\d+$`);
   return workItemRegex.test(workItem);
 }
+
+export async function preprocessWorkitemDescription(htmlContent: string, workItem: pol.PolarionWorkItem): Promise<string> {
+  // Regular expression to find img tags with workitemimg: src
+  const imgRegex = /<img[^>]+src="workitemimg:([^"]+)"[^>]*>/gi;
+  let processedContent = htmlContent;
+  let match;
+
+  while ((match = imgRegex.exec(htmlContent)) !== null) {
+    const attachmentId = match[1];
+    const fullImgTag = match[0];
+    
+    try {
+      // Download the image using the workitem's downloadAttachment method
+      const imageData = await workItem.downloadAttachment(attachmentId);
+      
+      if (imageData) {
+        // Create a data URI for the image
+        const mimeType = getImageMimeType(attachmentId);
+        const dataUri = `data:${mimeType};base64,${imageData}`;
+        
+        // Replace the workitemimg: src with the data URI
+        const updatedImgTag = fullImgTag.replace(/src="workitemimg:[^"]+"/i, `src="${dataUri}"`);
+        processedContent = processedContent.replace(fullImgTag, updatedImgTag);
+      }
+    } catch (error) {
+      console.error(`Failed to download image ${attachmentId} for workitem ${workItem.id}:`, error);
+      // Keep the original img tag if download fails
+    }
+  }
+  
+  return processedContent;
+}
+
+function getImageMimeType(filename: string): string {
+  const ext = path.extname(filename).toLowerCase();
+  switch (ext) {
+    case '.png':
+      return 'image/png';
+    case '.jpg':
+    case '.jpeg':
+      return 'image/jpeg';
+    case '.gif':
+      return 'image/gif';
+    case '.svg':
+      return 'image/svg+xml';
+    case '.webp':
+      return 'image/webp';
+    default:
+      return 'image/png'; // Default fallback
+  }
+}

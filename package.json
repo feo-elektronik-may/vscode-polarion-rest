@@ -32,6 +32,11 @@
       {
         "command": "vscode-polarion.restart",
         "title": "Restart Polarion client"
+      },
+      {
+        "command": "vscode-polarion.openWorkItemFromOutline",
+        "title": "Open in Polarion",
+        "icon": "$(link-external)"
       }
     ],
     "configuration": {
@@ -99,6 +104,20 @@
         {
           "command": "vscode-polarion.openPolarion",
           "group": "polarion@1"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "vscode-polarion.openWorkItemFromOutline",
+          "when": "view == polarionOutline && viewItem == workitem",
+          "group": "inline"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "vscode-polarion.openWorkItemFromOutline",
+          "when": "view == polarionOutline && viewItem == external-link",
+          "group": "inline"
         }
       ]
     },
