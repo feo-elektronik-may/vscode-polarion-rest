@@ -37,6 +37,10 @@
         "command": "vscode-polarion.openWorkItemFromOutline",
         "title": "Open in Polarion",
         "icon": "$(link-external)"
+      },
+      {
+        "command": "vscode-polarion.openWorkItemToSide",
+        "title": "Open to the Side"
       }
     ],
     "configuration": {

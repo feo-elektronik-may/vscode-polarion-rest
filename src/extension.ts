@@ -68,6 +68,11 @@ export async function activate(context: vscode.ExtensionContext) {
     }
   });
 
+  // New command for opening workitem to the side
+  vscode.commands.registerCommand('vscode-polarion.openWorkItemToSide', async (workItem: string) => {
+    await editor.handleOpenWorkItemToSide(workItem);
+  });
+
   // Register the hover provider
   const hoverProvider = vscode.languages.registerHoverProvider(
     { scheme: 'file' }, // Apply to all file types
