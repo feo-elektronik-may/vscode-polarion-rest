@@ -31,7 +31,7 @@ export class PolarionOutlinesProvider implements vscode.TreeDataProvider<Outline
       };
     } else if (element.type === 'description') {
       item.iconPath = new vscode.ThemeIcon('note');
-      // Show full HTML content in tooltip
+      // Show HTML content in tooltip - data is already sanitized from polarion.ts
       if (element.htmlContent) {
         item.tooltip = new vscode.MarkdownString(element.htmlContent, true);
         item.tooltip.supportHtml = true;
@@ -104,7 +104,7 @@ export class PolarionOutlinesProvider implements vscode.TreeDataProvider<Outline
         ));
       }
 
-      // Add other details
+      // Add other details - data is already sanitized from polarion.ts
       if (workItem.status?.id) {
         // Build status text with icon if available
         let statusText = workItem.status?.name || workItem.status.id;

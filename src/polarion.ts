@@ -2,6 +2,96 @@ import axios, { AxiosInstance, AxiosResponse } from "axios";
 import * as vscode from 'vscode';
 import * as utils from './utils';
 import * as editor from './editor';
+import * as sanitizeHtml from 'sanitize-html';
+
+// Function to sanitize text content from API responses
+function sanitizeApiText(text: string | undefined): string {
+  if (!text) return '';
+  return sanitizeHtml(text, { allowedTags: [], allowedAttributes: {} });
+}
+
+// Function to sanitize HTML content from API responses
+function sanitizeApiHtml(html: string | undefined, polarionUrl?: string): string {
+  if (!html) return '';
+  return sanitizeHtml(html, {
+    allowedTags: [
+      'p', 'br', 'strong', 'b', 'em', 'i', 'u', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
+      'ul', 'ol', 'li', 'blockquote', 'pre', 'code', 'table', 'thead', 'tbody', 'tr', 'td', 'th',
+      'img', 'a', 'div', 'span'
+    ],
+    allowedAttributes: {
+      'a': ['href', 'title'],
+      'img': ['src', 'alt', 'title', 'style'],
+      'div': ['style'],
+      'span': ['style', 'class', 'data-type', 'data-item-id'],
+      'td': ['style'],
+      'th': ['style'],
+      'table': ['style'],
+      'p': ['style']
+    },
+    allowedSchemes: ['http', 'https', 'data'],
+    allowedSchemesByTag: {
+      'img': ['http', 'https', 'data', 'workitemimg'],
+      'a': ['http', 'https', 'mailto']
+    },
+    transformTags: {
+      'a': function(tagName: string, attribs: any) {
+        return {
+          tagName: 'a',
+          attribs: {
+            href: attribs.href,
+            title: attribs.title,
+            target: '_blank',
+            rel: 'noopener noreferrer'
+          }
+        };
+      },
+      'span': function(tagName: string, attribs: any) {
+        // Transform Polarion workitem link spans into proper links
+        if (attribs.class === 'polarion-rte-link' && 
+            attribs['data-type'] === 'workItem' && 
+            attribs['data-item-id'] && 
+            polarionUrl) {
+          
+          // Construct the Polarion workitem URL
+          let baseUrl = polarionUrl;
+          if (!baseUrl.endsWith('/')) {
+            baseUrl += '/';
+          }
+          // Remove /polarion from the end if it's already there to avoid duplication
+          if (baseUrl.endsWith('/polarion/')) {
+            baseUrl = baseUrl.slice(0, -10); // Remove '/polarion/'
+          }
+          const workitemUrl = baseUrl + 'polarion/#/workitem?id=' + encodeURIComponent(attribs['data-item-id']);
+          
+          return {
+            tagName: 'a',
+            attribs: {
+              href: workitemUrl,
+              title: `${attribs['data-item-id']}`,
+              target: '_blank',
+              rel: 'noopener noreferrer'
+            },
+            text: `${sanitizeApiText(attribs['data-item-id'])}`
+          };
+        }
+        
+        // Keep other spans as-is but only with allowed attributes
+        const newAttribs: { [key: string]: string } = {};
+        if (attribs.style) {
+          newAttribs.style = attribs.style;
+        }
+        return {
+          tagName: 'span',
+          attribs: newAttribs
+        };
+      }
+    },
+    exclusiveFilter: function(frame: any) {
+      return frame.tag === 'script';
+    }
+  });
+}
 
 export let polarion: Polarion;
 
@@ -247,20 +337,20 @@ export class Polarion {
       const response: AxiosResponse = await this.httpClient.get(
         `/polarion/rest/v1/all/workitems`,
         { params: {
-          "query": `id:${itemId}`,
+          "query": `id:${sanitizeApiText(itemId)}`,
           "fields[workitems]": "id,title,type,author,status,description,project"
         }}
       );
 
       if (response.status === 200 && response.data?.data?.length > 0) {
         const workItem = response.data.data[0]; // Get the first (and should be only) result
-        this.report(`getWorkItem: Found workitem ${itemId} ${workItem.attributes?.title || workItem.title || 'No title'}`, LogLevel.info);
+        this.report(`getWorkItem: Found workitem ${itemId} ${sanitizeApiText(workItem.attributes?.title || workItem.title || 'No title')}`, LogLevel.info);
         
-        // Transform REST API response to match the expected format
+        // Transform REST API response to match the expected format - sanitize all string data
         const attributes = workItem.attributes || workItem;
-        const projectId = workItem.relationships?.project?.data?.id || attributes.project || 'unknown';
-        const statusId = attributes.status || workItem.status || 'unknown';
-        const workitemType = attributes.type || workItem.type || 'unknown';
+        const projectId = sanitizeApiText(workItem.relationships?.project?.data?.id || attributes.project || 'unknown');
+        const statusId = sanitizeApiText(attributes.status || workItem.status || 'unknown');
+        const workitemType = sanitizeApiText(attributes.type || workItem.type || 'unknown');
         
         // Get status display info (name, color, icon)
         const statusInfo = await this.getStatusDisplayInfo(statusId, projectId, workitemType);
@@ -269,12 +359,12 @@ export class Polarion {
         const typeInfo = await this.getWorkitemTypeDisplayInfo(workitemType, projectId);
         
         // Get author display info (name, email, initials)
-        const authorId = workItem.relationships?.author?.data?.id || workItem.author?.id || 'unknown';
+        const authorId = sanitizeApiText(workItem.relationships?.author?.data?.id || workItem.author?.id || 'unknown');
         const authorInfo = await this.getUserDisplayInfo(authorId);
         
         return {
-          id: workItem.id || attributes.id,
-          title: attributes.title || 'No title',
+          id: sanitizeApiText(workItem.id || attributes.id),
+          title: sanitizeApiText(attributes.title || 'No title'),
           type: {
             id: workitemType,
             name: typeInfo.name,
@@ -293,9 +383,9 @@ export class Polarion {
             iconPath: statusInfo.iconPath
           },
           description: attributes.description ? {
-            content: attributes.description.value || attributes.description
+            content: sanitizeApiHtml(attributes.description.value || attributes.description, this.polarionUrl)
           } : workItem.description ? {
-            content: workItem.description.value || workItem.description
+            content: sanitizeApiHtml(workItem.description.value || workItem.description, this.polarionUrl)
           } : undefined,
           attributes: {
             unresolvable: 'false'
@@ -440,10 +530,10 @@ export class Polarion {
       
       // Use the correct API endpoint for status options per project and workitem type
       const response: AxiosResponse = await this.httpClient.get(
-        `/polarion/rest/v1/projects/${projectId}/workitems/fields/status/actions/getAvailableOptions`,
+        `/polarion/rest/v1/projects/${encodeURIComponent(sanitizeApiText(projectId))}/workitems/fields/status/actions/getAvailableOptions`,
         {
           params: {
-            type: workitemType
+            type: sanitizeApiText(workitemType)
           }
         }
       );
@@ -452,12 +542,12 @@ export class Polarion {
         const statusOptions = response.data.data;
         const statusMap = new Map<string, { name: string, color: string, iconPath?: string }>();
 
-        // Process the status options
+        // Process the status options - sanitize all string data
         for (const option of statusOptions) {
           if (option.id && option.name) {
             const statusInfo = {
-              name: option.name,
-              color: option.color || '#000000',
+              name: sanitizeApiText(option.name),
+              color: sanitizeApiText(option.color) || '#000000',
               iconPath: undefined as string | undefined
             };
 
@@ -473,7 +563,7 @@ export class Polarion {
               }
             }
 
-            statusMap.set(option.id, statusInfo);
+            statusMap.set(sanitizeApiText(option.id), statusInfo);
           }
         }
 
@@ -627,7 +717,7 @@ export class Polarion {
       
       // Use the Polarion REST API to get user information
       const response: AxiosResponse = await this.httpClient.get(
-        `/polarion/rest/v1/users/${userId}`,
+        `/polarion/rest/v1/users/${encodeURIComponent(sanitizeApiText(userId))}`,
         {
           params: {
             "fields[users]": "id,name,email,initials"
@@ -639,10 +729,11 @@ export class Polarion {
         const userData = response.data.data;
         const attributes = userData.attributes || {};
         
+        // Sanitize all user data from API
         const userInfo = {
-          name: attributes.name || userId,
-          email: attributes.email,
-          initials: attributes.initials
+          name: sanitizeApiText(attributes.name) || sanitizeApiText(userId),
+          email: sanitizeApiText(attributes.email),
+          initials: sanitizeApiText(attributes.initials)
         };
 
         // Cache the results
@@ -657,7 +748,7 @@ export class Polarion {
         
         // Cache empty result to avoid repeated failed requests
         this.userCache.set(userId, {
-          user: { name: userId },
+          user: { name: sanitizeApiText(userId) },
           time: new Date()
         });
       }
@@ -666,7 +757,7 @@ export class Polarion {
       
       // Create empty cache entry to avoid repeated failed requests
       this.userCache.set(userId, {
-        user: { name: userId },
+        user: { name: sanitizeApiText(userId) },
         time: new Date()
       });
     }
@@ -719,18 +810,18 @@ export class Polarion {
       
       // Use the Polarion REST API to get workitem type enumerations for the project
       const response: AxiosResponse = await this.httpClient.get(
-        `/polarion/rest/v1/projects/${projectId}/enumerations/~/workitem-type/~`
+        `/polarion/rest/v1/projects/${encodeURIComponent(sanitizeApiText(projectId))}/enumerations/~/workitem-type/~`
       );
 
       if (response.status === 200 && response.data?.data?.attributes?.options) {
         const typeOptions = response.data.data.attributes.options;
         const typeMap = new Map<string, { name: string, iconPath?: string }>();
 
-        // Process the workitem type options
+        // Process the workitem type options - sanitize all string data
         for (const option of typeOptions) {
           if (option.id && option.name) {
             const typeInfo = {
-              name: option.name,
+              name: sanitizeApiText(option.name),
               iconPath: undefined as string | undefined
             };
 
@@ -746,7 +837,7 @@ export class Polarion {
               }
             }
 
-            typeMap.set(option.id, typeInfo);
+            typeMap.set(sanitizeApiText(option.id), typeInfo);
           }
         }
 
